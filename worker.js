@@ -1,0 +1,232 @@
+export default {
+  async fetch(request, env) {
+    const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RecruitAI — Recruitment Intelligence Suite</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --primary: #0F172A; --secondary: #1E293B; --accent: #00D9FF;
+            --accent-alt: #FF006E; --text-primary: #F1F5F9; --text-secondary: #94A3B8;
+            --success: #10B981; --warning: #F59E0B; --danger: #EF4444; --border: #334155;
+        }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, var(--primary) 0%, #1a1f3a 100%);
+            color: var(--text-primary); min-height: 100vh; overflow-x: hidden;
+        }
+        .header {
+            background: rgba(15,23,42,0.9); backdrop-filter: blur(12px);
+            border-bottom: 2px solid var(--accent); padding: 1rem 2rem;
+            position: sticky; top: 0; z-index: 100;
+        }
+        .header-content { max-width: 1400px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
+        .logo { font-size: 1.6rem; font-weight: 900; letter-spacing: -1px; background: linear-gradient(90deg, var(--accent), var(--accent-alt)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .api-status { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 1rem; background: var(--secondary); border: 1px solid var(--border); border-radius: 6px; font-size: 0.8rem; cursor: pointer; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); animation: pulse 2s infinite; }
+        .status-dot.connected { background: var(--success); animation: none; }
+        .status-dot.warning { background: var(--warning); }
+        .container { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+        .settings-panel { display: none; background: var(--secondary); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }
+        .settings-panel.show { display: block; animation: slideDownIn 0.3s ease; }
+        .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; }
+        .tab-nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem; }
+        .tab-btn { padding: 0.7rem 1rem; background: rgba(30,41,59,0.5); border: 1px solid var(--border); color: var(--text-secondary); cursor: pointer; border-radius: 8px; font-weight: 600; font-size: 0.85rem; transition: all 0.25s ease; white-space: nowrap; }
+        .tab-btn:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
+        .tab-btn.active { background: var(--accent); color: var(--primary); border-color: var(--accent); box-shadow: 0 0 20px rgba(0,217,255,0.25); }
+        .module { display: none; }
+        .module.active { display: block; animation: fadeInUp 0.4s ease; }
+        .card { background: rgba(30,41,59,0.6); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; backdrop-filter: blur(8px); margin-bottom: 1.5rem; }
+        .card h2 { font-size: 1.3rem; color: var(--accent); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem; }
+        .card .subtitle { color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1.5rem; }
+        .form-group { margin-bottom: 1.25rem; }
+        label { display: block; margin-bottom: 0.4rem; color: var(--text-secondary); font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        input, textarea, select { width: 100%; padding: 0.75rem; background: rgba(15,23,42,0.7); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-family: inherit; font-size: 0.9rem; transition: all 0.2s ease; }
+        input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(0,217,255,0.15); }
+        textarea { resize: vertical; min-height: 100px; }
+        .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }
+        .btn { padding: 0.75rem 1.5rem; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.25s ease; font-size: 0.9rem; }
+        .btn-primary { background: var(--accent); color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,217,255,0.3); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .btn-secondary { background: transparent; border: 2px solid var(--accent-alt); color: var(--accent-alt); }
+        .btn-secondary:hover { background: var(--accent-alt); color: white; }
+        .btn-sm { padding: 0.5rem 1rem; font-size: 0.8rem; }
+        .result-container { margin-top: 1.5rem; padding: 1.25rem; background: rgba(16,185,129,0.06); border: 1px solid var(--success); border-radius: 8px; display: none; }
+        .result-container.show { display: block; animation: slideInUp 0.4s ease; }
+        .result-container.error { background: rgba(239,68,68,0.06); border-color: var(--danger); }
+        .result-container.warning { background: rgba(245,158,11,0.06); border-color: var(--warning); }
+        .result-title { font-weight: 700; margin-bottom: 0.75rem; font-size: 1rem; }
+        .result-content { font-size: 0.9rem; line-height: 1.6; color: var(--text-secondary); }
+        .result-content h1, .result-content h2, .result-content h3 { color: var(--accent); margin: 1rem 0 0.5rem; }
+        .result-content strong { color: var(--text-primary); }
+        .result-content ul { margin-left: 1.25rem; }
+        .result-content li { margin-bottom: 0.3rem; }
+        .loading-wrap { display: flex; align-items: center; gap: 0.75rem; }
+        .loading { width: 18px; height: 18px; border: 2px solid rgba(0,217,255,0.3); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @keyframes slideDownIn { from { transform: translateY(-10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes fadeInUp { from { transform: translateY(15px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes slideInUp { from { transform: translateY(8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+        @media (max-width: 768px) { .container { padding: 1rem; } .tab-nav { grid-template-columns: repeat(2, 1fr); } .form-grid { grid-template-columns: 1fr; } .header-content { flex-direction: column; gap: 0.5rem; } }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-content">
+            <div class="logo">⚡ RecruitAI</div>
+            <div class="api-status" onclick="toggleSettings()" title="Click to configure">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">⚙️ Configurar API</span>
+            </div>
+        </div>
+    </div>
+    <div class="container">
+        <div class="settings-panel" id="settingsPanel">
+            <h3 style="color: var(--accent); margin-bottom: 1rem;">⚙️ Conexión Backend</h3>
+            <div class="settings-grid">
+                <div class="form-group"><label>Backend URL (Render)</label><input type="url" id="backendUrl" placeholder="https://recruit-ai-api.onrender.com"></div>
+                <div class="form-group"><label>API Secret</label><div style="display:flex; gap:0.5rem;"><input type="password" id="apiSecret" placeholder="your-secret-key" style="flex:1;"><button class="btn btn-secondary btn-sm" onclick="toggleSecretVisibility()">👁</button></div></div>
+            </div>
+            <div style="display:flex; gap:0.5rem; margin-top:1rem;"><button class="btn btn-primary btn-sm" onclick="saveSettings()">Guardar</button><button class="btn btn-secondary btn-sm" onclick="testConnection()">Probar Conexión</button></div>
+            <p style="margin-top:0.75rem; font-size:0.8rem; color:var(--text-secondary);">💡 El backend oculta tu API key de Kimi. Los usuarios finales nunca la ven.</p>
+        </div>
+        <div class="tab-nav">
+            <button class="tab-btn active" onclick="switchTab('cv')">📄 CV</button>
+            <button class="tab-btn" onclick="switchTab('linkedin')">🔗 LinkedIn</button>
+            <button class="tab-btn" onclick="switchTab('job')">🎯 Job Match</button>
+            <button class="tab-btn" onclick="switchTab('freelance')">💼 Freelance</button>
+            <button class="tab-btn" onclick="switchTab('interview')">🎤 Interview</button>
+        </div>
+        <div id="cv" class="module active">
+            <div class="card">
+                <h2>📄 CV Optimizer</h2>
+                <p class="subtitle">Análisis ATS + optimización con IA. Pega tu CV y recibe un diagnóstico completo.</p>
+                <div class="form-grid">
+                    <div class="form-group"><label>Nombre completo</label><input type="text" id="cvName" placeholder="Juan Pérez"></div>
+                    <div class="form-group"><label>Email</label><input type="email" id="cvEmail" placeholder="juan@ejemplo.com"></div>
+                    <div class="form-group"><label>Profesión / Título</label><input type="text" id="cvProfession" placeholder="Full Stack Developer"></div>
+                    <div class="form-group"><label>Industria</label><select id="cvIndustry"><option value="general">General</option><option value="tech">Tecnología</option><option value="finance">Finanzas</option><option value="marketing">Marketing</option><option value="sales">Ventas</option><option value="design">Diseño</option><option value="operations">Operaciones</option><option value="hr">RRHH</option></select></div>
+                </div>
+                <div class="form-group"><label>Pega tu CV aquí (texto plano)</label><textarea id="cvContent" placeholder="Pega todo el contenido de tu CV..." rows="8"></textarea></div>
+                <button class="btn btn-primary" id="cvBtn" onclick="analyzeCv()">Analizar con IA</button>
+                <div id="cvResult" class="result-container"></div>
+            </div>
+        </div>
+        <div id="linkedin" class="module">
+            <div class="card">
+                <h2>🔗 LinkedIn Analyzer</h2>
+                <p class="subtitle">Optimiza tu perfil para que los recruiters te encuentren.</p>
+                <div class="form-grid">
+                    <div class="form-group"><label>Headline / Título actual</label><input type="text" id="liTitle" placeholder="Full Stack Dev @ Startup XYZ"></div>
+                    <div class="form-group"><label>URL de perfil (opcional)</label><input type="url" id="liUrl" placeholder="https://linkedin.com/in/..."></div>
+                </div>
+                <div class="form-group"><label>About / Bio</label><textarea id="liBio" placeholder="Pega tu sección 'Acerca de'..." rows="5"></textarea></div>
+                <div class="form-group"><label>Skills (lista separada por comas)</label><textarea id="liSkills" placeholder="Python, React, Node.js, PostgreSQL..." rows="3"></textarea></div>
+                <button class="btn btn-primary" id="liBtn" onclick="analyzeLinkedin()">Analizar Perfil</button>
+                <div id="liResult" class="result-container"></div>
+            </div>
+        </div>
+        <div id="job" class="module">
+            <div class="card">
+                <h2>🎯 Job Match Analyzer</h2>
+                <p class="subtitle">¿Vale la pena aplicar? Compara tu perfil contra la oferta y recibe un score.</p>
+                <div class="form-group"><label>Título del puesto</label><input type="text" id="jobTitle" placeholder="Senior Software Engineer"></div>
+                <div class="form-group"><label>Descripción de la oferta (pégala completa)</label><textarea id="jobDesc" placeholder="Pega la descripción del puesto..." rows="6"></textarea></div>
+                <div class="form-group"><label>Tu perfil (resumen breve)</label><textarea id="jobProfile" placeholder="5 años como Full Stack, especialista en React y Node..." rows="4"></textarea></div>
+                <div class="form-grid"><div class="form-group"><label>¿Qué tan interesado estás?</label><select id="jobInterest"><option value="low">Curiosidad</option><option value="medium" selected>Medianamente</option><option value="high">Lo quiero</option></select></div></div>
+                <button class="btn btn-primary" id="jobBtn" onclick="analyzeJob()">Calcular Match Score</button>
+                <div id="jobResult" class="result-container"></div>
+            </div>
+        </div>
+        <div id="freelance" class="module">
+            <div class="card">
+                <h2>💼 Freelance Finder</h2>
+                <p class="subtitle">Descubre qué proyectos buscar y cuánto cobrar.</p>
+                <div class="form-grid">
+                    <div class="form-group"><label>Especialidad</label><select id="flSpecialty"><option value="">-- Selecciona --</option><option value="frontend">Frontend</option><option value="backend">Backend</option><option value="fullstack">Full Stack</option><option value="mobile">Mobile</option><option value="data">Data Science</option><option value="design">UI/UX Design</option><option value="devops">DevOps / Cloud</option><option value="writing">Technical Writing</option><option value="marketing">Digital Marketing</option><option value="other">Otro</option></select></div>
+                    <div class="form-group"><label>Nivel</label><select id="flLevel"><option value="junior">Junior (0-2 años)</option><option value="mid" selected>Mid (2-5 años)</option><option value="senior">Senior (5+ años)</option><option value="expert">Expert / Lead</option></select></div>
+                    <div class="form-group"><label>Tarifa esperada (USD/hora)</label><select id="flRate"><option value="25-50">$25 - $50</option><option value="50-100" selected>$50 - $100</option><option value="100-200">$100 - $200</option><option value="200+">$200+</option></select></div>
+                </div>
+                <div class="form-group"><label>Tecnologías / Skills que dominas</label><textarea id="flSkills" placeholder="React, TypeScript, Node.js, PostgreSQL, Docker..." rows="3"></textarea></div>
+                <button class="btn btn-primary" id="flBtn" onclick="searchFreelance()">Buscar Proyectos</button>
+                <div id="flResult" class="result-container"></div>
+            </div>
+        </div>
+        <div id="interview" class="module">
+            <div class="card">
+                <h2>🎤 Interview Trainer</h2>
+                <p class="subtitle">Scripts STAR, escenarios de roleplay, negociación salarial.</p>
+                <div class="form-grid">
+                    <div class="form-group"><label>Puesto que buscas</label><input type="text" id="intPosition" placeholder="Senior Engineer, Product Manager..."></div>
+                    <div class="form-group"><label>Empresa (opcional)</label><input type="text" id="intCompany" placeholder="Google, Startup XYZ..."></div>
+                </div>
+                <div class="form-group"><label>Tu perfil / experiencia</label><textarea id="intProfile" placeholder="Resumen de tu background, logros clave..." rows="4"></textarea></div>
+                <div class="form-group"><label>Tu mayor desafío en entrevistas</label><select id="intChallenge"><option value="">General</option><option value="nervousness">Nerviosismo / Confianza</option><option value="technical">Preguntas técnicas</option><option value="behavioral">Behavioral / STAR</option><option value="salary">Negociación salarial</option><option value="explanation">Explicar decisiones</option><option value="questions">Qué preguntar</option></select></div>
+                <button class="btn btn-primary" id="intBtn" onclick="prepInterview()">Generar Preparación</button>
+                <div id="intResult" class="result-container"></div>
+            </div>
+        </div>
+    </div>
+    <script>
+        const CONFIG = { backendUrl: localStorage.getItem('ra_backendUrl') || '', apiSecret: localStorage.getItem('ra_apiSecret') || '' };
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('backendUrl').value = CONFIG.backendUrl;
+            document.getElementById('apiSecret').value = CONFIG.apiSecret;
+            updateStatus(CONFIG.backendUrl && CONFIG.apiSecret ? 'warning' : 'danger', CONFIG.backendUrl && CONFIG.apiSecret ? '⚠️ Falta probar conexión' : '⚙️ Configurar API');
+            if (CONFIG.backendUrl && CONFIG.apiSecret) testConnection();
+        });
+        function toggleSettings() { document.getElementById('settingsPanel').classList.toggle('show'); }
+        function toggleSecretVisibility() { const el = document.getElementById('apiSecret'); el.type = el.type === 'password' ? 'text' : 'password'; }
+        function saveSettings() {
+            CONFIG.backendUrl = document.getElementById('backendUrl').value.trim().replace(/\/$/, '');
+            CONFIG.apiSecret = document.getElementById('apiSecret').value.trim();
+            localStorage.setItem('ra_backendUrl', CONFIG.backendUrl);
+            localStorage.setItem('ra_apiSecret', CONFIG.apiSecret);
+            alert('✓ Configuración guardada');
+            testConnection();
+        }
+        async function testConnection() {
+            if (!CONFIG.backendUrl) { alert('⚠️ Ingresa Backend URL'); return; }
+            updateStatus('warning', '🔄 Probando...');
+            try {
+                const r = await fetch(CONFIG.backendUrl + '/health', { headers: { 'x-api-key': CONFIG.apiSecret } });
+                if (r.ok) { updateStatus('connected', '✓ Backend conectado'); }
+                else { updateStatus('danger', '✗ Error ' + r.status + ': Revisa API Secret'); }
+            } catch(e) { updateStatus('danger', '✗ Backend no responde. Revisa URL.'); }
+        }
+        function updateStatus(state, text) { const dot = document.getElementById('statusDot'); const txt = document.getElementById('statusText'); dot.className = 'status-dot' + (state ? ' ' + state : ''); txt.textContent = text; }
+        function switchTab(tab) { document.querySelectorAll('.module').forEach(m => m.classList.remove('active')); document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active')); document.getElementById(tab).classList.add('active'); event.target.classList.add('active'); }
+        async function callApi(endpoint, body, btnId, resultId) {
+            if (!CONFIG.backendUrl || !CONFIG.apiSecret) { alert('⚠️ Configura Backend URL y API Secret primero (click en el status arriba)'); toggleSettings(); return null; }
+            const btn = document.getElementById(btnId); const original = btn.textContent; btn.disabled = true; btn.textContent = '🔄 Procesando...';
+            showResult(resultId, '⏳ Analizando...', '<div class="loading"></div> Conectando con IA...', 'warning');
+            try {
+                const r = await fetch(CONFIG.backendUrl + endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': CONFIG.apiSecret }, body: JSON.stringify(body) });
+                if (!r.ok) { const err = await r.json().catch(() => ({})); throw new Error(err.detail || 'Error ' + r.status); }
+                const data = await r.json();
+                showResult(resultId, '✓ Análisis completado', marked.parse(data.result), 'success');
+                return data;
+            } catch(e) { showResult(resultId, '❌ Error', e.message, 'error'); return null; }
+            finally { btn.disabled = false; btn.textContent = original; }
+        }
+        function showResult(id, title, html, type) { const el = document.getElementById(id); el.className = 'result-container show ' + (type === 'error' ? 'error' : type === 'warning' ? 'warning' : ''); el.innerHTML = '<div class="result-title">' + title + '</div><div class="result-content">' + html + '</div>'; }
+        async function analyzeCv() { const c = document.getElementById('cvContent').value.trim(); if (!c) { alert('⚠️ Pega tu CV'); return; } await callApi('/api/cv/optimize', { name: document.getElementById('cvName').value, email: document.getElementById('cvEmail').value, profession: document.getElementById('cvProfession').value, cv_content: c, industry: document.getElementById('cvIndustry').value }, 'cvBtn', 'cvResult'); }
+        async function analyzeLinkedin() { const t = document.getElementById('liTitle').value.trim(); const b = document.getElementById('liBio').value.trim(); if (!t || !b) { alert('⚠️ Completa título y bio'); return; } await callApi('/api/linkedin/analyze', { title: t, bio: b, url: document.getElementById('liUrl').value, skills: document.getElementById('liSkills').value }, 'liBtn', 'liResult'); }
+        async function analyzeJob() { const t = document.getElementById('jobTitle').value.trim(); const d = document.getElementById('jobDesc').value.trim(); const p = document.getElementById('jobProfile').value.trim(); if (!t || !d || !p) { alert('⚠️ Completa todos los campos'); return; } await callApi('/api/job/match', { job_title: t, job_description: d, user_profile: p, interest: document.getElementById('jobInterest').value }, 'jobBtn', 'jobResult'); }
+        async function searchFreelance() { const s = document.getElementById('flSpecialty').value; const sk = document.getElementById('flSkills').value.trim(); if (!s || !sk) { alert('⚠️ Selecciona especialidad y skills'); return; } await callApi('/api/freelance/search', { specialty: s, level: document.getElementById('flLevel').value, skills: sk, rate_range: document.getElementById('flRate').value }, 'flBtn', 'flResult'); }
+        async function prepInterview() { const pos = document.getElementById('intPosition').value.trim(); const prof = document.getElementById('intProfile').value.trim(); if (!pos || !prof) { alert('⚠️ Completa puesto y perfil'); return; } await callApi('/api/interview/prep', { position: pos, company: document.getElementById('intCompany').value, profile: prof, challenge: document.getElementById('intChallenge').value }, 'intBtn', 'intResult'); }
+    </script>
+</body>
+</html>`;
+
+    return new Response(html, {
+      headers: { 'content-type': 'text/html;charset=UTF-8' }
+    });
+  }
+};

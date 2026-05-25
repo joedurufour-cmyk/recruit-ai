@@ -9,8 +9,16 @@ services:
       - key: PYTHON_VERSION
         value: "3.11"
       - key: KIMI_API_KEY
-        sync: false  # Set manually in Render dashboard
+        sync: false
       - key: API_SECRET
-        sync: false  # Set manually in Render dashboard
+        sync: false
       - key: KIMI_MODEL
         value: "kimi-latest"
+
+  - type: worker
+    name: recruit-ai-frontend
+    plan: free
+    buildCommand: ""
+    startCommand: ""
+    source: cloudflare
+    # Deployed via Cloudflare Workers dashboard with worker.js
