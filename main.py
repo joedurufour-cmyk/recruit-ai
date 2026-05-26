@@ -11,7 +11,7 @@ load_dotenv()
 # ═══════════════════════════════════════════════════════════════════════════════
 # CVME ENGINE v1.0 | RECRUITAI BACKEND
 # Axioma: ERROR_MITIGATION > DOCUMENTATION > OPTIMIZATION
-# Invariantes: INVARIANTE_1–10 activas
+# Invariantes: INVARIANTE_1-10 activas
 # ═══════════════════════════════════════════════════════════════════════════════
 
 app = Flask(__name__)
@@ -25,13 +25,13 @@ API_SECRET = os.getenv("API_SECRET", "default-secret-change-me")
 
 # ── Σ type: Result ── TIER_3 symbolic substitution ────────────────────────────
 class Result:
-    """Σ(T|E) — sum type. ¬ bare exception."""
+    """Σ(T|E) - sum type. ¬ bare exception."""
     def __init__(self, ok: bool, data=None, error=None, status=200):
         self.ok = ok
         self.data = data
         self.error = error
         self.status = status
-    
+
     def to_tuple(self):
         if self.ok:
             return {"result": self.data}, self.status
@@ -39,10 +39,10 @@ class Result:
 
 # ── Ω marker: Kimi LLM call ── INVARIANTE_5: SEGREGACIÓN Ω vs λ ────────────────
 def Ω_kimi_chat(messages: list, temperature: float = 0.5, max_tokens: int = 2500) -> Result:
-    """Ω(f) — side effect declarado: llama a API externa."""
+    """Ω(f) - side effect declarado: llama a API externa."""
     if not KIMI_API_KEY:
         return Result(False, error="KIMI_API_KEY not configured", status=500)
-    
+
     # τ constraint: 60s max
     τ_start = time.time()
     try:
@@ -53,10 +53,10 @@ def Ω_kimi_chat(messages: list, temperature: float = 0.5, max_tokens: int = 250
             timeout=60
         )
         τ_elapsed = time.time() - τ_start
-        
+
         if resp.status_code != 200:
-            return Result(False, error=f"Kimi API error: {resp.status_code} — {resp.text}", status=502)
-        
+            return Result(False, error=f"Kimi API error: {resp.status_code} - {resp.text}", status=502)
+
         content = resp.json()["choices"][0]["message"]["content"]
         return Result(True, data=content, meta={"latency_ms": int(τ_elapsed * 1000)})
     except requests.exceptions.Timeout:
@@ -66,7 +66,7 @@ def Ω_kimi_chat(messages: list, temperature: float = 0.5, max_tokens: int = 250
 
 # ── λ: Pure functions ── INVARIANTE_5 ──────────────────────────────────────────
 def λ_strip_markdown(text: str) -> str:
-    """λ — pura, sin side effects. Transforma input → output."""
+    """λ - pura, sin side effects. Transforma input → output."""
     t = text.strip()
     if t.startswith("```"):
         lines = t.splitlines()
@@ -76,7 +76,7 @@ def λ_strip_markdown(text: str) -> str:
     return t
 
 def λ_verify_api_key(x_api_key: str) -> Result:
-    """λ — pura. Validación sin side effects."""
+    """λ - pura. Validación sin side effects."""
     if not x_api_key or x_api_key != API_SECRET:
         return Result(False, error="Invalid API key", status=401)
     return Result(True, data="auth_ok")
@@ -178,7 +178,7 @@ Markdown. Español. Específico, práctico, motivador."""
 
 # ── GATE_1: Validation helper ── INVARIANTE_2 ────────────────────────────────
 def gate_validate(schema_class, data: dict) -> Result:
-    """{P} — precondición como schema. Si falla → 422 ANTES de ejecutar C."""
+    """{P} - precondición como schema. Si falla → 422 ANTES de ejecutar C."""
     try:
         validated = schema_class(**data)
         return Result(True, data=validated)
@@ -211,34 +211,35 @@ def cv_optimize():
     if not auth.ok:
         body, code = auth.to_tuple()
         return jsonify(body), code
-    
+
     # GATE_1: Schema validation
     data = request.get_json() or {}
     validated = gate_validate(CvOptimizeIn, data)
     if not validated.ok:
         body, code = validated.to_tuple()
         return jsonify(body), code
-    
+
     req = validated.data
-    msg = f"""Analiza este CV para la industria "{req.industry}":
+    req_dict = req.dict()
+    msg = f"""Analiza este CV para la industria "{req_dict.get('industry', 'general')}":
 DATOS PERSONALES:
-- Nombre: {req.name}
-- Email: {req.email}
-- Teléfono: {req.phone}
-- LinkedIn: {req.linkedin}
-- Profesión: {req.profession}
+- Nombre: {req_dict.get('name', '')}
+- Email: {req_dict.get('email', '')}
+- Teléfono: {req_dict.get('phone', '')}
+- LinkedIn: {req_dict.get('linkedin', '')}
+- Profesión: {req_dict.get('profession', '')}
 
 CONTENIDO DEL CV:
-{req.cv_content}
+{req_dict.get('cv_content', '')}
 
 Proporciona análisis completo."""
-    
+
     result = Ω_kimi_chat([{"role": "system", "content": CV_SYSTEM}, {"role": "user", "content": msg}], 0.4, 2500)
     if not result.ok:
         body, code = result.to_tuple()
         return jsonify(body), code
-    
-    return jsonify({"result": λ_strip_markdown(result.data), "meta": {"module": "cv_optimizer", "industry": req.industry}})
+
+    return jsonify({"result": λ_strip_markdown(result.data), "meta": {"module": "cv_optimizer", "industry": req_dict.get('industry', 'general')}})
 
 @app.route("/api/linkedin/analyze", methods=["POST"])
 def linkedin_analyze():
@@ -253,18 +254,18 @@ def linkedin_analyze():
         body, code = validated.to_tuple()
         return jsonify(body), code
     
-    req = validated.data
+    req = validated.data.dict()
     msg = f"""Analiza mi perfil de LinkedIn:
 HEADLINE ACTUAL:
-{req.title}
+{req.get('title', '')}
 
 ABOUT SECTION:
-{req.bio}
+{req.get('bio', '')}
 
 SKILLS:
-{req.skills or 'No especificados'}
+{req.get('skills', 'No especificados')}
 
-URL: {req.url or 'No proporcionada'}
+URL: {req.get('url', 'No proporcionada')}
 
 Proporciona análisis completo."""
     
@@ -288,17 +289,17 @@ def job_match():
         body, code = validated.to_tuple()
         return jsonify(body), code
     
-    req = validated.data
+    req = validated.data.dict()
     msg = f"""Analiza compatibilidad:
 
 OFERTA:
-Puesto: {req.job_title}
-Descripción: {req.job_description}
+Puesto: {req.get('job_title', '')}
+Descripción: {req.get('job_description', '')}
 
 MI PERFIL:
-{req.user_profile}
+{req.get('user_profile', '')}
 
-Interés en aplicar: {req.interest}
+Interés en aplicar: {req.get('interest', 'medium')}
 
 Proporciona análisis completo."""
     
@@ -307,7 +308,7 @@ Proporciona análisis completo."""
         body, code = result.to_tuple()
         return jsonify(body), code
     
-    return jsonify({"result": λ_strip_markdown(result.data), "meta": {"module": "job_analyzer", "interest": req.interest}})
+    return jsonify({"result": λ_strip_markdown(result.data), "meta": {"module": "job_analyzer", "interest": req.get('interest', 'medium')}})
 
 @app.route("/api/freelance/search", methods=["POST"])
 def freelance_search():
@@ -322,13 +323,13 @@ def freelance_search():
         body, code = validated.to_tuple()
         return jsonify(body), code
     
-    req = validated.data
+    req = validated.data.dict()
     msg = f"""Recomiéndame proyectos freelance:
 
-ESPECIALIDAD: {req.specialty}
-NIVEL: {req.level}
-SKILLS: {req.skills}
-TARIFA ESPERADA: {req.rate_range}/hora
+ESPECIALIDAD: {req.get('specialty', '')}
+NIVEL: {req.get('level', '')}
+SKILLS: {req.get('skills', '')}
+TARIFA ESPERADA: {req.get('rate_range', '50-100')}/hora
 
 Proporciona recomendaciones completas."""
     
@@ -337,7 +338,7 @@ Proporciona recomendaciones completas."""
         body, code = result.to_tuple()
         return jsonify(body), code
     
-    return jsonify({"result": λ_strip_markdown(result.data), "meta": {"module": "freelance_search", "specialty": req.specialty}})
+    return jsonify({"result": λ_strip_markdown(result.data), "meta": {"module": "freelance_search", "specialty": req.get('specialty', '')}})
 
 @app.route("/api/interview/prep", methods=["POST"])
 def interview_prep():
@@ -352,13 +353,13 @@ def interview_prep():
         body, code = validated.to_tuple()
         return jsonify(body), code
     
-    req = validated.data
+    req = validated.data.dict()
     msg = f"""Prepárame para entrevista:
 
-PUESTO: {req.position}
-EMPRESA: {req.company or 'No especificada'}
-MI PERFIL: {req.profile}
-DESAFÍO PRINCIPAL: {req.challenge or 'General'}
+PUESTO: {req.get('position', '')}
+EMPRESA: {req.get('company', 'No especificada')}
+MI PERFIL: {req.get('profile', '')}
+DESAFÍO PRINCIPAL: {req.get('challenge', 'General')}
 
 Genera preparación completa."""
     
@@ -367,7 +368,7 @@ Genera preparación completa."""
         body, code = result.to_tuple()
         return jsonify(body), code
     
-    return jsonify({"result": λ_strip_markdown(result.data), "meta": {"module": "interview_trainer", "challenge": req.challenge}})
+    return jsonify({"result": λ_strip_markdown(result.data), "meta": {"module": "interview_trainer", "challenge": req.get('challenge', '')}})
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
