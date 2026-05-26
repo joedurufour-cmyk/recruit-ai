@@ -1,4 +1,5 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
+from flask_cors import CORS
 from pydantic import BaseModel, ValidationError
 import os
 import requests
@@ -14,6 +15,7 @@ load_dotenv()
 # ═══════════════════════════════════════════════════════════════════════════════
 
 app = Flask(__name__)
+CORS(app)
 
 # ── L3: CONFIG ── INVARIANTE_1: SECRET_ISOLATION ────────────────────────────
 KIMI_API_KEY = os.getenv("KIMI_API_KEY", "")
@@ -192,7 +194,11 @@ def gate_validate(schema_class, data: dict) -> Result:
 
 @app.route("/", methods=["GET"])
 def root():
-    return jsonify({"status": "RecruitAI API running", "version": "1.0.0", "cvme": "1.0"})
+    return send_file('index.html')
+
+@app.route("/app", methods=["GET"])
+def app_page():
+    return send_file('index.html')
 
 @app.route("/health", methods=["GET"])
 def health():
