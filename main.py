@@ -370,6 +370,288 @@ Genera preparación completa."""
     
     return jsonify({"result": λ_strip_markdown(result.data), "meta": {"module": "interview_trainer", "challenge": req.get('challenge', '')}})
 
-if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8000))
-    app.run(host="0.0.0.0", port=port)
+# ═══════════════════════════════════════════════════════════════════════════════
+# INTAKE DECODER ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+INTAKE_SYSTEM = """Eres el motor INTAKE Decoder v2. Tu trabajo es tomar texto caótico, desordenado, con typos, fragmentos, dictado de voz mal transcrito — y transformarlo en un reporte ejecutivo estructurado.
+
+PROCESO:
+1. Corregir texto (typos, normalizar, segmentar en oraciones)
+2. Clasificar intención: PRODUCIR|SOLUCIONAR|CREAR|INVESTIGAR|PROCESAR|DESAHOGO
+3. Extraer entidades: dinero, fechas, emails, personas, sistemas, keywords
+4. Catalogar variables clave
+5. Generar tareas priorizadas (P1/P2/P3)
+6. Detectar gaps y rellenar con inferencia contextual
+7. Redactar reporte ejecutivo
+
+OUTPUT FORMAT (Markdown estructurado):
+
+# INTAKE REPORT
+
+## 1. Texto corregido
+[texto limpio, normalizado]
+
+## 2. Clasificación
+- Tipo: [PRODUCIR|SOLUCIONAR|CREAR|INVESTIGAR|PROCESAR|DESAHOGO]
+- Confianza: [N]%
+- Template: [nombre]
+
+## 3. Análisis de Intención
+- Problema presentado: [primeras 120 chars del input]
+- Problema real: [qué realmente necesita resolver]
+- Necesidad oculta: [lo que no dice explícitamente pero implica]
+- Objetivo real: [acción concreta a ejecutar]
+
+## 4. Prioridad Automática
+- Nivel: [ALTA|MEDIA|BAJA]
+- Score: [N]/100
+- Justificación: [por qué]
+
+## 5. Tareas Catalogadas (máx 8)
+- [P1/P2/P3] [VERBO]: [objeto]
+  - Categoría: [finanzas|trabajo|producto|casa|entregable|general]
+  - Plazo: [fecha o 'no definido']
+  - Siguiente paso: [acción inmediata]
+
+## 6. Variables Detectadas
+- [tipo]: [valor] ([confianza]%)
+
+## 7. Gaps y Recomendaciones
+- [qué falta]: [sugerencia de relleno]
+
+## 8. Entidades Extraídas
+- Dinero: [...]
+- Fechas: [...]
+- Personas: [...]
+- Sistemas: [...]
+- Keywords: [...]
+
+Reglas:
+- Sé directo, sin fluff
+- Si es DESAHOGO, primero validar emociones sin forzar solución
+- Prioridad por: bloqueo > fecha cercana > impacto externo > esfuerzo
+- Siempre proponer próximo paso verificable"""
+
+class IntakeDecodeIn(BaseModel):
+    text: str
+    mode: str = "standard"
+    autofill: bool = True
+
+class IntakeSaveIn(BaseModel):
+    id: int = 0
+    input: str
+    corrected_text: str
+    classification_type: str
+    classification_confidence: int
+    template: str
+    priority_level: str
+    priority_score: int
+    tasks: list
+    variables: list
+    gaps: list
+    entities: dict
+    markdown: str
+    raw: str
+    profile: dict
+
+# ── Simple SQLite persistence for INTAKE reports ──
+import sqlite3
+import json
+
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "intake_reports.db")
+
+def init_intake_db():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        input TEXT,
+        corrected_text TEXT,
+        classification_type TEXT,
+        classification_confidence INTEGER,
+        template TEXT,
+        priority_level TEXT,
+        priority_score INTEGER,
+        tasks TEXT,
+        variables TEXT,
+        gaps TEXT,
+        entities TEXT,
+        markdown TEXT,
+        raw TEXT,
+        profile TEXT
+    )''')
+    conn.commit()
+    conn.close()
+
+init_intake_db()
+
+@app.route("/intake", methods=["GET"])
+def intake_page():
+    return send_file('intake-offline.html')
+
+@app.route("/api/intake/decode", methods=["POST"])
+def intake_decode():
+    auth = λ_verify_api_key(request.headers.get("x-api-key", ""))
+    if not auth.ok:
+        body, code = auth.to_tuple()
+        return jsonify(body), code
+    
+    data = request.get_json() or {}
+    validated = gate_validate(IntakeDecodeIn, data)
+    if not validated.ok:
+        body, code = validated.to_tuple()
+        return jsonify(body), code
+    
+    req = validated.data.dict()
+    text = req.get('text', '')
+    mode = req.get('mode', 'standard')
+    
+    msg = f"""Procesa el siguiente INTAKE:
+
+MODO: {mode}
+
+TEXTO ORIGINAL:
+{text}
+
+Genera reporte completo siguiendo el formato especificado."""
+    
+    result = Ω_kimi_chat([
+        {"role": "system", "content": INTAKE_SYSTEM},
+        {"role": "user", "content": msg}
+    ], 0.4, 3000)
+    
+    if not result.ok:
+        body, code = result.to_tuple()
+        return jsonify(body), code
+    
+    return jsonify({
+        "result": λ_strip_markdown(result.data),
+        "meta": {
+            "module": "intake_decoder",
+            "mode": mode,
+            "input_length": len(text)
+        }
+    })
+
+@app.route("/api/intake/save", methods=["POST"])
+def intake_save():
+    auth = λ_verify_api_key(request.headers.get("x-api-key", ""))
+    if not auth.ok:
+        body, code = auth.to_tuple()
+        return jsonify(body), code
+    
+    data = request.get_json() or {}
+    
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''INSERT INTO reports 
+        (input, corrected_text, classification_type, classification_confidence, 
+         template, priority_level, priority_score, tasks, variables, gaps, 
+         entities, markdown, raw, profile)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+        (
+            data.get('input', ''),
+            data.get('corrected_text', ''),
+            data.get('classification_type', ''),
+            data.get('classification_confidence', 0),
+            data.get('template', ''),
+            data.get('priority_level', ''),
+            data.get('priority_score', 0),
+            json.dumps(data.get('tasks', [])),
+            json.dumps(data.get('variables', [])),
+            json.dumps(data.get('gaps', [])),
+            json.dumps(data.get('entities', {})),
+            data.get('markdown', ''),
+            data.get('raw', ''),
+            json.dumps(data.get('profile', {}))
+        ))
+    conn.commit()
+    report_id = c.lastrowid
+    conn.close()
+    
+    return jsonify({"ok": True, "id": report_id, "message": "Report saved"})
+
+@app.route("/api/intake/reports", methods=["GET"])
+def intake_reports():
+    auth = λ_verify_api_key(request.headers.get("x-api-key", ""))
+    if not auth.ok:
+        body, code = auth.to_tuple()
+        return jsonify(body), code
+    
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT id, created_at, classification_type, priority_level, priority_score, template FROM reports ORDER BY id DESC')
+    rows = c.fetchall()
+    conn.close()
+    
+    reports = []
+    for row in rows:
+        reports.append({
+            "id": row[0],
+            "created_at": row[1],
+            "classification_type": row[2],
+            "priority_level": row[3],
+            "priority_score": row[4],
+            "template": row[5]
+        })
+    
+    return jsonify({"reports": reports, "count": len(reports)})
+
+@app.route("/api/intake/report/<int:report_id>", methods=["GET"])
+def intake_report_get(report_id):
+    auth = λ_verify_api_key(request.headers.get("x-api-key", ""))
+    if not auth.ok:
+        body, code = auth.to_tuple()
+        return jsonify(body), code
+    
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT * FROM reports WHERE id = ?', (report_id,))
+    row = c.fetchone()
+    conn.close()
+    
+    if not row:
+        return jsonify({"error": "Report not found"}), 404
+    
+    return jsonify({
+        "id": row[0],
+        "created_at": row[1],
+        "input": row[2],
+        "corrected_text": row[3],
+        "classification_type": row[4],
+        "classification_confidence": row[5],
+        "template": row[6],
+        "priority_level": row[7],
+        "priority_score": row[8],
+        "tasks": json.loads(row[9] or '[]'),
+        "variables": json.loads(row[10] or '[]'),
+        "gaps": json.loads(row[11] or '[]'),
+        "entities": json.loads(row[12] or '{}'),
+        "markdown": row[13],
+        "raw": row[14],
+        "profile": json.loads(row[15] or '{}')
+    })
+
+@app.route("/api/intake/report/<int:report_id>", methods=["DELETE"])
+def intake_report_delete(report_id):
+    auth = λ_verify_api_key(request.headers.get("x-api-key", ""))
+    if not auth.ok:
+        body, code = auth.to_tuple()
+        return jsonify(body), code
+    
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('DELETE FROM reports WHERE id = ?', (report_id,))
+    conn.commit()
+    deleted = c.rowcount
+    conn.close()
+    
+    return jsonify({"ok": deleted > 0, "deleted": deleted})
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# END INTAKE DECODER
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
