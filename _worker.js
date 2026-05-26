@@ -10,20 +10,21 @@ export default {
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0e1a;color:#e2e8f0;line-height:1.6}
 .container{max-width:900px;margin:0 auto;padding:20px}
-header{text-align:center;padding:30px 0;border-bottom:1px solid #1e293b;margin-bottom:30px}
+header{text-align:center;padding:30px 0;border-bottom:1px solid #1e293b;margin-bottom:30px;position:relative}
 header h1{font-size:2rem;background:linear-gradient(135deg,#00d9ff,#ff006e);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.status-dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;margin-left:10px;cursor:pointer}
-.status-dot.connected{background:#22c55e}
-.connection-panel{background:#1e293b;padding:20px;border-radius:12px;margin-bottom:30px;display:none}
+.settings-btn{position:absolute;top:20px;right:20px;background:#1e293b;border:1px solid #334155;border-radius:8px;padding:8px 12px;cursor:pointer;font-size:.85rem;color:#94a3b8}
+.settings-btn:hover{border-color:#00d9ff;color:#e2e8f0}
+.connection-panel{background:#1e293b;padding:20px;border-radius:12px;margin-bottom:30px;display:none;border:1px solid #334155}
 .connection-panel.active{display:block}
-.connection-panel input{width:100%;padding:10px;margin:8px 0;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0}
+.connection-panel input{width:100%;padding:10px;margin:8px 0;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:1rem}
+.connection-panel label{display:block;margin-top:12px;font-size:.9rem;color:#94a3b8}
 .btn{background:linear-gradient(135deg,#00d9ff,#ff006e);color:#fff;border:none;padding:10px 24px;border-radius:8px;cursor:pointer;font-weight:600;margin:5px}
 .btn:hover{opacity:.9}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:15px;margin-bottom:30px}
 .card{background:#1e293b;padding:20px;border-radius:12px;cursor:pointer;transition:transform .2s;border:1px solid #334155}
 .card:hover{transform:translateY(-2px);border-color:#00d9ff}
-.card h3{margin-bottom:8px;color:#00d9ff}
-.module-form{background:#1e293b;padding:25px;border-radius:12px;display:none}
+.card h3{margin-bottom:8px;color:#00d9ff;font-size:1.1rem}
+.module-form{background:#1e293b;padding:25px;border-radius:12px;display:none;border:1px solid #334155}
 .module-form.active{display:block}
 .module-form label{display:block;margin:15px 0 5px;font-size:.9rem;color:#94a3b8}
 .module-form input,.module-form textarea,.module-form select{width:100%;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:1rem}
@@ -31,7 +32,9 @@ header h1{font-size:2rem;background:linear-gradient(135deg,#00d9ff,#ff006e);-web
 .result-box{background:#0f172a;padding:20px;border-radius:8px;margin-top:20px;white-space:pre-wrap;display:none;border-left:3px solid #00d9ff}
 .result-box.active{display:block}
 .loading{text-align:center;padding:40px;color:#64748b}
-.error{background:#450a0a;border-left-color:#ef4444;color:#fca5a5}
+.error{background:#450a0a;border-left-color:#ef4444 !important;color:#fca5a5}
+.close-btn{float:right;background:none;border:none;color:#64748b;font-size:1.2rem;cursor:pointer}
+.close-btn:hover{color:#e2e8f0}
 </style>
 </head>
 <body>
@@ -39,11 +42,13 @@ header h1{font-size:2rem;background:linear-gradient(135deg,#00d9ff,#ff006e);-web
 <header>
 <h1>⚡ RecruitAI</h1>
 <p>Suite de Reclutamiento con IA</p>
+<button class="settings-btn" onclick="toggleSettings()">⚙️ Configurar</button>
 </header>
 
 <div id="connectionPanel" class="connection-panel">
+<button class="close-btn" onclick="toggleSettings()">×</button>
 <h3 style="margin-bottom:15px">⚙️ Conexión Backend</h3>
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:15px">
+<div style="display:grid;grid-template-columns:1fr;gap:15px">
 <div>
 <label>Backend URL (Render)</label>
 <input id="backendUrl" type="text" placeholder="https://tu-api.onrender.com">
@@ -187,13 +192,15 @@ function init(){
   document.getElementById('apiSecret').value = apiSecret;
   if(!backendUrl || !apiSecret){
     document.getElementById('connectionPanel').classList.add('active');
-  } else {
-    testConnection();
   }
 }
 
+function toggleSettings(){
+  document.getElementById('connectionPanel').classList.toggle('active');
+}
+
 function saveSettings(){
-  backendUrl = document.getElementById('backendUrl').value.trim();
+  backendUrl = document.getElementById('backendUrl').value.trim().replace(/\/$/, '');
   apiSecret = document.getElementById('apiSecret').value.trim();
   localStorage.setItem('ra_backendUrl', backendUrl);
   localStorage.setItem('ra_apiSecret', apiSecret);
@@ -207,7 +214,7 @@ async function testConnection(retries = 3){
   for(let i = 0; i < retries; i++){
     try{
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s timeout para cold start de Render
+      const timeoutId = setTimeout(() => controller.abort(), 45000);
       
       const resp = await fetch(backendUrl + '/health', {
         method: 'GET',
@@ -220,22 +227,19 @@ async function testConnection(retries = 3){
         const data = await resp.json();
         if(data.ok){
           statusEl.innerHTML = '<span style="color:#22c55e">✅ Conectado</span>';
-          document.querySelector('.status-dot').classList.add('connected');
-          setTimeout(() => document.getElementById('connectionPanel').classList.remove('active'), 1000);
           return;
         }
       }
     } catch(e){
       if(i < retries - 1){
         statusEl.innerHTML = '<span style="color:#fbbf24">⏳ Reintentando (' + (i+1) + '/' + retries + ')...</span>';
-        await new Promise(r => setTimeout(r, 3000)); // Esperar 3s antes de reintentar
+        await new Promise(r => setTimeout(r, 3000));
         continue;
       }
     }
   }
   
-  statusEl.innerHTML = '<span style="color:#ef4444">❌ No responde. Revisa URL y API Secret.</span>';
-  document.querySelector('.status-dot').classList.remove('connected');
+  statusEl.innerHTML = '<span style="color:#ef4444">❌ No responde</span>';
 }
 
 function showModule(name){
@@ -304,7 +308,7 @@ async function submitModule(name, retries = 2){
   for(let i = 0; i < retries; i++){
     try{
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 65000); // 65s timeout total
+      const timeoutId = setTimeout(() => controller.abort(), 65000);
       
       const resp = await fetch(backendUrl + ENDPOINTS[name], {
         method: 'POST',
@@ -338,11 +342,6 @@ async function submitModule(name, retries = 2){
     }
   }
 }
-
-// Toggle settings panel
-document.querySelector('.status-dot').addEventListener('click', () => {
-  document.getElementById('connectionPanel').classList.toggle('active');
-});
 
 init();
 </script>
