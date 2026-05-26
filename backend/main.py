@@ -105,4 +105,5 @@ def interview_prep():
     return jsonify({"result": strip_markdown(result), "meta": {"module": "interview_trainer"}})
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+    port = int(os.getenv("PORT", 8000))
+    app.run(host="0.0.0.0", port=port)
