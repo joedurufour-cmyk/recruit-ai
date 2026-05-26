@@ -1,7 +1,7 @@
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional, Literal
+from typing import List, Optional
 import os
 import httpx
 from dotenv import load_dotenv
@@ -10,7 +10,6 @@ load_dotenv()
 
 app = FastAPI(title="RecruitAI API", version="1.0.0")
 
-# CORS — tighten to your Cloudflare domain in production
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,85 +18,65 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Kimi / Moonshot AI Configuration
 KIMI_API_KEY = os.getenv("KIMI_API_KEY", "")
 KIMI_MODEL = os.getenv("KIMI_MODEL", "kimi-latest")
 KIMI_BASE = "https://api.moonshot.cn/v1"
-
-# Your own API key for users calling your backend
 API_SECRET = os.getenv("API_SECRET", "default-secret-change-me")
 
-# ============================================================
-# Auth
-# ============================================================
-async def verify_api_key(x_api_key: Optional[str] = Header(None)):
+async def verify_api_key(x_api_key: str = Header("")):
     if not x_api_key or x_api_key != API_SECRET:
         raise HTTPException(status_code=401, detail="Invalid API key")
     return x_api_key
 
-# ============================================================
-# Models
-# ============================================================
 class CvOptimizeRequest(BaseModel):
     name: str
-    email: Optional[str] = ""
-    phone: Optional[str] = ""
-    linkedin: Optional[str] = ""
+    email: str = ""
+    phone: str = ""
+    linkedin: str = ""
     profession: str
     cv_content: str
-    industry: Optional[str] = "general"
+    industry: str = "general"
 
 class LinkedinAnalyzeRequest(BaseModel):
-    url: Optional[str] = ""
+    url: str = ""
     title: str
     bio: str
-    skills: Optional[str] = ""
+    skills: str = ""
 
 class JobMatchRequest(BaseModel):
     job_title: str
     job_description: str
     user_profile: str
-    interest: Optional[str] = "medium"
+    interest: str = "medium"
 
 class FreelanceSearchRequest(BaseModel):
     specialty: str
     level: str
     skills: str
-    rate_range: Optional[str] = "50-100"
+    rate_range: str = "50-100"
 
 class InterviewPrepRequest(BaseModel):
     position: str
-    company: Optional[str] = ""
+    company: str = ""
     profile: str
-    challenge: Optional[str] = ""
+    challenge: str = ""
 
 class ApiResponse(BaseModel):
     result: str
-    meta: dict
+    meta: dict = {}
 
-# ============================================================
-# Kimi LLM Helper
-# ============================================================
 async def kimi_chat(messages: list, temperature: float = 0.5, max_tokens: int = 2500) -> str:
     if not KIMI_API_KEY:
         raise HTTPException(status_code=500, detail="KIMI_API_KEY not configured")
-
     async with httpx.AsyncClient(timeout=60.0) as client:
         resp = await client.post(
             f"{KIMI_BASE}/chat/completions",
             headers={"Authorization": f"Bearer {KIMI_API_KEY}"},
-            json={
-                "model": KIMI_MODEL,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            }
+            json={"model": KIMI_MODEL, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
         )
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail=f"Kimi API error: {resp.status_code} {resp.text}")
-
-    data = resp.json()
-    return data["choices"][0]["message"]["content"]
+    return resp.json()["choices"][0]["message"]["content"]
 
 def strip_markdown(text: str) -> str:
     t = text.strip()
@@ -110,72 +89,60 @@ def strip_markdown(text: str) -> str:
         t = "\n".join(lines).strip()
     return t
 
-# ============================================================
-# System Prompts
-# ============================================================
-CV_SYSTEM = """Eres un experto en ATS (Applicant Tracking Systems) y reclutamiento con 10+ años de experiencia.
-Tu tarea es analizar CVs y proporcionar:
-1. Puntuación ATS (0-100) con criterios detallados
-2. Palabras clave faltantes para la industria
-3. Problemas de formato y estructura
-4. Top 5 recomendaciones específicas y accionables
-5. Versión optimizada del resumen profesional
-6. Puntos fuertes que debe destacar
+CV_SYSTEM = """Eres un experto en ATS y reclutamiento. Analiza CVs y proporciona:
+1. Puntuacion ATS (0-100)
+2. Palabras clave faltantes
+3. Problemas de formato
+4. Top 5 recomendaciones
+5. Version optimizada del resumen
+6. Puntos fuertes
 
-Formato: Markdown profesional con headers, bullet points, y una tabla de scoring.
-Escribe en español. Sé directo, no uses fluff."""
+Formato: Markdown. Espanol. Directo."""
 
-LINKEDIN_SYSTEM = """Eres un experto en LinkedIn y personal branding para profesionales tech.
-Analiza perfiles y proporciona:
-1. Puntuación de optimización (0-100)
-2. Problemas críticos identificados
-3. Headline mejorado (máx 120 caracteres)
-4. About section optimizado y listo para copiar
-5. Top 5 skills a destacar y por qué
-6. Estrategia de contenido semanal para engagement
+LINKEDIN_SYSTEM = """Eres un experto en LinkedIn y personal branding tech.
+1. Puntuacion (0-100)
+2. Problemas criticos
+3. Headline mejorado
+4. About optimizado
+5. Top 5 skills
+6. Estrategia de contenido
 
-Formato: Markdown con secciones claras. Español. Directo y accionable."""
+Markdown. Espanol. Directo."""
 
-JOB_MATCH_SYSTEM = """Eres un experto en análisis de compatibilidad laboral y coach de carrera.
-Compara candidato vs oferta y proporciona:
-1. Match Score (0-100) con breakdown por categoría
-2. Top 5 fortalezas para esta posición específica
-3. Top 5 gaps o áreas de mejora urgentes
-4. Recomendación CLARA: SÍ aplicar / NO todavía / MEJORAR antes
-5. Top 3 puntos para enfatizar en cover letter
-6. Red flags de la oferta (si existen)
-7. Estrategia de negociación si aplica
+JOB_MATCH_SYSTEM = """Eres un coach de carrera. Compara candidato vs oferta:
+1. Match Score (0-100)
+2. 5 fortalezas
+3. 5 gaps
+4. Recomendacion: SI/NO/MEJORAR
+5. Puntos para cover letter
+6. Red flags
+7. Estrategia de negociacion
 
-Sé honesto pero constructivo. Markdown. Español."""
+Markdown. Espanol. Directo."""
 
-FREELANCE_SYSTEM = """Eres un experto en mercado freelance (Upwork, Toptal, Fiverr, Contra, etc).
-Recomienda proyectos y nichos rentables. Proporciona:
-1. Top 5 tipos de proyectos que debería buscar AHORA
-2. Rango de tarifa realista para su nivel y especialidad
-3. Plataformas recomendadas con pros/cons
-4. Palabras clave para búsqueda efectiva
-5. Estrategia de diferenciación contra la competencia
-6. Errores comunes que cuestan contratos
-7. 3 ejemplos concretos de proyectos tipo
+FREELANCE_SYSTEM = """Eres un experto en mercado freelance. Recomienda:
+1. Top 5 proyectos a buscar
+2. Rango de tarifa realista
+3. Plataformas recomendadas
+4. Palabras clave de busqueda
+5. Estrategia de diferenciacion
+6. Errores comunes
+7. 3 ejemplos de proyectos
 
-Markdown. Español. Directo."""
+Markdown. Espanol."""
 
-INTERVIEW_SYSTEM = """Eres un coach de entrevistas de alto nivel. Prepara candidatos para procesos selectivos tech.
-Genera:
-1. 5 preguntas probables + respuestas en formato STAR
-2. 3 escenarios de roleplay (pregunta + sugerencia de respuesta)
-3. 5 preguntas que EL candidato DEBE hacer
-4. Elevator pitch personalizado listo para usar
-5. Estrategia de negociación salarial
-6. Cómo cerrar la entrevista con impacto
-7. Checklist pre-entrevista (24h, 2h, 30min antes)
-8. Respuesta perfecta para "¿Cuáles son tus debilidades?"
+INTERVIEW_SYSTEM = """Eres un coach de entrevistas tech.
+1. 5 preguntas probables + respuestas STAR
+2. 3 escenarios de roleplay
+3. 5 preguntas que DEBE hacer
+4. Elevator pitch
+5. Negociacion salarial
+6. Como cerrar la entrevista
+7. Checklist pre-entrevista
+8. Respuesta a 'tus debilidades'
 
-Markdown. Español. Específico, práctico, motivador."""
+Markdown. Espanol."""
 
-# ============================================================
-# Endpoints
-# ============================================================
 @app.get("/")
 async def root():
     return {"status": "RecruitAI API running", "version": "1.0.0"}
@@ -184,107 +151,47 @@ async def root():
 async def health():
     return {"ok": True, "kimi_configured": bool(KIMI_API_KEY)}
 
-@app.post("/api/cv/optimize", response_model=ApiResponse)
+@app.post("/api/cv/optimize")
 async def cv_optimize(req: CvOptimizeRequest, api_key: str = Depends(verify_api_key)):
     user_msg = f"""Analiza este CV para la industria "{req.industry or 'general'}":
+DATOS: Nombre: {req.name}, Email: {req.email}, Profesion: {req.profession}
+CV: {req.cv_content}
+Proporciona analisis completo."""
+    result = await kimi_chat([{"role": "system", "content": CV_SYSTEM}, {"role": "user", "content": user_msg}], 0.4, 2500)
+    return {"result": strip_markdown(result), "meta": {"module": "cv_optimizer"}}
 
-DATOS PERSONALES:
-- Nombre: {req.name}
-- Email: {req.email}
-- Teléfono: {req.phone}
-- LinkedIn: {req.linkedin}
-- Profesión: {req.profession}
-
-CONTENIDO DEL CV:
-{req.cv_content}
-
-Proporciona análisis completo."""
-
-    result = await kimi_chat([
-        {"role": "system", "content": CV_SYSTEM},
-        {"role": "user", "content": user_msg}
-    ], temperature=0.4, max_tokens=2500)
-
-    return ApiResponse(result=strip_markdown(result), meta={"module": "cv_optimizer", "industry": req.industry})
-
-@app.post("/api/linkedin/analyze", response_model=ApiResponse)
+@app.post("/api/linkedin/analyze")
 async def linkedin_analyze(req: LinkedinAnalyzeRequest, api_key: str = Depends(verify_api_key)):
-    user_msg = f"""Analiza mi perfil de LinkedIn:
+    user_msg = f"""Analiza perfil LinkedIn:
+Headline: {req.title}
+About: {req.bio}
+Skills: {req.skills or 'No especificados'}
+Proporciona analisis completo."""
+    result = await kimi_chat([{"role": "system", "content": LINKEDIN_SYSTEM}, {"role": "user", "content": user_msg}], 0.4, 2500)
+    return {"result": strip_markdown(result), "meta": {"module": "linkedin_analyzer"}}
 
-HEADLINE ACTUAL:
-{req.title}
-
-ABOUT SECTION:
-{req.bio}
-
-SKILLS:
-{req.skills or 'No especificados'}
-
-URL: {req.url or 'No proporcionada'}
-
-Proporciona análisis completo."""
-
-    result = await kimi_chat([
-        {"role": "system", "content": LINKEDIN_SYSTEM},
-        {"role": "user", "content": user_msg}
-    ], temperature=0.4, max_tokens=2500)
-
-    return ApiResponse(result=strip_markdown(result), meta={"module": "linkedin_analyzer"})
-
-@app.post("/api/job/match", response_model=ApiResponse)
+@app.post("/api/job/match")
 async def job_match(req: JobMatchRequest, api_key: str = Depends(verify_api_key)):
     user_msg = f"""Analiza compatibilidad:
+OFERTA: {req.job_title} - {req.job_description}
+PERFIL: {req.user_profile}
+Interes: {req.interest}
+Proporciona analisis completo."""
+    result = await kimi_chat([{"role": "system", "content": JOB_MATCH_SYSTEM}, {"role": "user", "content": user_msg}], 0.5, 2500)
+    return {"result": strip_markdown(result), "meta": {"module": "job_analyzer"}}
 
-OFERTA:
-Puesto: {req.job_title}
-Descripción: {req.job_description}
-
-MI PERFIL:
-{req.user_profile}
-
-Interés en aplicar: {req.interest}
-
-Proporciona análisis completo."""
-
-    result = await kimi_chat([
-        {"role": "system", "content": JOB_MATCH_SYSTEM},
-        {"role": "user", "content": user_msg}
-    ], temperature=0.5, max_tokens=2500)
-
-    return ApiResponse(result=strip_markdown(result), meta={"module": "job_analyzer", "interest": req.interest})
-
-@app.post("/api/freelance/search", response_model=ApiResponse)
+@app.post("/api/freelance/search")
 async def freelance_search(req: FreelanceSearchRequest, api_key: str = Depends(verify_api_key)):
-    user_msg = f"""Recomiéndame proyectos freelance:
-
-ESPECIALIDAD: {req.specialty}
-NIVEL: {req.level}
-SKILLS: {req.skills}
-TARIFA ESPERADA: {req.rate_range}/hora
-
+    user_msg = f"""Recomienda proyectos freelance:
+Especialidad: {req.specialty}, Nivel: {req.level}, Skills: {req.skills}, Tarifa: {req.rate_range}
 Proporciona recomendaciones completas."""
+    result = await kimi_chat([{"role": "system", "content": FREELANCE_SYSTEM}, {"role": "user", "content": user_msg}], 0.6, 2500)
+    return {"result": strip_markdown(result), "meta": {"module": "freelance_search"}}
 
-    result = await kimi_chat([
-        {"role": "system", "content": FREELANCE_SYSTEM},
-        {"role": "user", "content": user_msg}
-    ], temperature=0.6, max_tokens=2500)
-
-    return ApiResponse(result=strip_markdown(result), meta={"module": "freelance_search", "specialty": req.specialty})
-
-@app.post("/api/interview/prep", response_model=ApiResponse)
+@app.post("/api/interview/prep")
 async def interview_prep(req: InterviewPrepRequest, api_key: str = Depends(verify_api_key)):
-    user_msg = f"""Prepárame para entrevista:
-
-PUESTO: {req.position}
-EMPRESA: {req.company or 'No especificada'}
-MI PERFIL: {req.profile}
-DESAFÍO PRINCIPAL: {req.challenge or 'General'}
-
-Genera preparación completa."""
-
-    result = await kimi_chat([
-        {"role": "system", "content": INTERVIEW_SYSTEM},
-        {"role": "user", "content": user_msg}
-    ], temperature=0.5, max_tokens=3000)
-
-    return ApiResponse(result=strip_markdown(result), meta={"module": "interview_trainer", "challenge": req.challenge})
+    user_msg = f"""Prepara entrevista:
+Puesto: {req.position}, Empresa: {req.company or 'No especificada'}, Perfil: {req.profile}, Desafio: {req.challenge or 'General'}
+Genera preparacion completa."""
+    result = await kimi_chat([{"role": "system", "content": INTERVIEW_SYSTEM}, {"role": "user", "content": user_msg}], 0.5, 3000)
+    return {"result": strip_markdown(result), "meta": {"module": "interview_trainer"}}
