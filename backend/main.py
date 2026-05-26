@@ -1,73 +1,26 @@
-from fastapi import FastAPI, HTTPException, Header, Depends
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Optional
+from flask import Flask, request, jsonify
 import os
 import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
 
-app = FastAPI(title="RecruitAI API", version="1.0.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = Flask(__name__)
 
 KIMI_API_KEY = os.getenv("KIMI_API_KEY", "")
 KIMI_MODEL = os.getenv("KIMI_MODEL", "kimi-latest")
 KIMI_BASE = "https://api.moonshot.cn/v1"
 API_SECRET = os.getenv("API_SECRET", "default-secret-change-me")
 
-async def verify_api_key(x_api_key: str = Header("")):
-    if not x_api_key or x_api_key != API_SECRET:
-        raise HTTPException(status_code=401, detail="Invalid API key")
-    return x_api_key
+def verify_api_key():
+    key = request.headers.get("x-api-key", "")
+    if not key or key != API_SECRET:
+        return jsonify({"error": "Invalid API key"}), 401
+    return None
 
-class CvOptimizeRequest(BaseModel):
-    name: str
-    email: str = ""
-    phone: str = ""
-    linkedin: str = ""
-    profession: str
-    cv_content: str
-    industry: str = "general"
-
-class LinkedinAnalyzeRequest(BaseModel):
-    url: str = ""
-    title: str
-    bio: str
-    skills: str = ""
-
-class JobMatchRequest(BaseModel):
-    job_title: str
-    job_description: str
-    user_profile: str
-    interest: str = "medium"
-
-class FreelanceSearchRequest(BaseModel):
-    specialty: str
-    level: str
-    skills: str
-    rate_range: str = "50-100"
-
-class InterviewPrepRequest(BaseModel):
-    position: str
-    company: str = ""
-    profile: str
-    challenge: str = ""
-
-class ApiResponse(BaseModel):
-    result: str
-    meta: dict = {}
-
-async def kimi_chat(messages: list, temperature: float = 0.5, max_tokens: int = 2500) -> str:
+async def kimi_chat(messages, temperature=0.5, max_tokens=2500):
     if not KIMI_API_KEY:
-        raise HTTPException(status_code=500, detail="KIMI_API_KEY not configured")
+        return jsonify({"error": "KIMI_API_KEY not configured"}), 500
     async with httpx.AsyncClient(timeout=60.0) as client:
         resp = await client.post(
             f"{KIMI_BASE}/chat/completions",
@@ -75,10 +28,10 @@ async def kimi_chat(messages: list, temperature: float = 0.5, max_tokens: int = 
             json={"model": KIMI_MODEL, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
         )
     if resp.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"Kimi API error: {resp.status_code} {resp.text}")
+        return jsonify({"error": f"Kimi API error: {resp.status_code}"}), 502
     return resp.json()["choices"][0]["message"]["content"]
 
-def strip_markdown(text: str) -> str:
+def strip_markdown(text):
     t = text.strip()
     if t.startswith("```"):
         lines = t.splitlines()
@@ -143,55 +96,78 @@ INTERVIEW_SYSTEM = """Eres un coach de entrevistas tech.
 
 Markdown. Espanol."""
 
-@app.get("/")
-async def root():
-    return {"status": "RecruitAI API running", "version": "1.0.0"}
+@app.route("/", methods=["GET"])
+def root():
+    return jsonify({"status": "RecruitAI API running", "version": "1.0.0"})
 
-@app.get("/health")
-async def health():
-    return {"ok": True, "kimi_configured": bool(KIMI_API_KEY)}
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"ok": True, "kimi_configured": bool(KIMI_API_KEY)})
 
-@app.post("/api/cv/optimize")
-async def cv_optimize(req: CvOptimizeRequest, api_key: str = Depends(verify_api_key)):
-    user_msg = f"""Analiza este CV para la industria "{req.industry or 'general'}":
-DATOS: Nombre: {req.name}, Email: {req.email}, Profesion: {req.profession}
-CV: {req.cv_content}
+@app.route("/api/cv/optimize", methods=["POST"])
+async def cv_optimize():
+    err = verify_api_key()
+    if err: return err
+    data = request.get_json() or {}
+    user_msg = f"""Analiza este CV para la industria "{data.get('industry', 'general')}":
+DATOS: Nombre: {data.get('name', '')}, Email: {data.get('email', '')}, Profesion: {data.get('profession', '')}
+CV: {data.get('cv_content', '')}
 Proporciona analisis completo."""
     result = await kimi_chat([{"role": "system", "content": CV_SYSTEM}, {"role": "user", "content": user_msg}], 0.4, 2500)
-    return {"result": strip_markdown(result), "meta": {"module": "cv_optimizer"}}
+    if isinstance(result, tuple): return result
+    return jsonify({"result": strip_markdown(result), "meta": {"module": "cv_optimizer"}})
 
-@app.post("/api/linkedin/analyze")
-async def linkedin_analyze(req: LinkedinAnalyzeRequest, api_key: str = Depends(verify_api_key)):
+@app.route("/api/linkedin/analyze", methods=["POST"])
+async def linkedin_analyze():
+    err = verify_api_key()
+    if err: return err
+    data = request.get_json() or {}
     user_msg = f"""Analiza perfil LinkedIn:
-Headline: {req.title}
-About: {req.bio}
-Skills: {req.skills or 'No especificados'}
+Headline: {data.get('title', '')}
+About: {data.get('bio', '')}
+Skills: {data.get('skills', 'No especificados')}
 Proporciona analisis completo."""
     result = await kimi_chat([{"role": "system", "content": LINKEDIN_SYSTEM}, {"role": "user", "content": user_msg}], 0.4, 2500)
-    return {"result": strip_markdown(result), "meta": {"module": "linkedin_analyzer"}}
+    if isinstance(result, tuple): return result
+    return jsonify({"result": strip_markdown(result), "meta": {"module": "linkedin_analyzer"}})
 
-@app.post("/api/job/match")
-async def job_match(req: JobMatchRequest, api_key: str = Depends(verify_api_key)):
+@app.route("/api/job/match", methods=["POST"])
+async def job_match():
+    err = verify_api_key()
+    if err: return err
+    data = request.get_json() or {}
     user_msg = f"""Analiza compatibilidad:
-OFERTA: {req.job_title} - {req.job_description}
-PERFIL: {req.user_profile}
-Interes: {req.interest}
+OFERTA: {data.get('job_title', '')} - {data.get('job_description', '')}
+PERFIL: {data.get('user_profile', '')}
+Interes: {data.get('interest', 'medium')}
 Proporciona analisis completo."""
     result = await kimi_chat([{"role": "system", "content": JOB_MATCH_SYSTEM}, {"role": "user", "content": user_msg}], 0.5, 2500)
-    return {"result": strip_markdown(result), "meta": {"module": "job_analyzer"}}
+    if isinstance(result, tuple): return result
+    return jsonify({"result": strip_markdown(result), "meta": {"module": "job_analyzer"}})
 
-@app.post("/api/freelance/search")
-async def freelance_search(req: FreelanceSearchRequest, api_key: str = Depends(verify_api_key)):
+@app.route("/api/freelance/search", methods=["POST"])
+async def freelance_search():
+    err = verify_api_key()
+    if err: return err
+    data = request.get_json() or {}
     user_msg = f"""Recomienda proyectos freelance:
-Especialidad: {req.specialty}, Nivel: {req.level}, Skills: {req.skills}, Tarifa: {req.rate_range}
+Especialidad: {data.get('specialty', '')}, Nivel: {data.get('level', '')}, Skills: {data.get('skills', '')}, Tarifa: {data.get('rate_range', '50-100')}
 Proporciona recomendaciones completas."""
     result = await kimi_chat([{"role": "system", "content": FREELANCE_SYSTEM}, {"role": "user", "content": user_msg}], 0.6, 2500)
-    return {"result": strip_markdown(result), "meta": {"module": "freelance_search"}}
+    if isinstance(result, tuple): return result
+    return jsonify({"result": strip_markdown(result), "meta": {"module": "freelance_search"}})
 
-@app.post("/api/interview/prep")
-async def interview_prep(req: InterviewPrepRequest, api_key: str = Depends(verify_api_key)):
+@app.route("/api/interview/prep", methods=["POST"])
+async def interview_prep():
+    err = verify_api_key()
+    if err: return err
+    data = request.get_json() or {}
     user_msg = f"""Prepara entrevista:
-Puesto: {req.position}, Empresa: {req.company or 'No especificada'}, Perfil: {req.profile}, Desafio: {req.challenge or 'General'}
+Puesto: {data.get('position', '')}, Empresa: {data.get('company', 'No especificada')}, Perfil: {data.get('profile', '')}, Desafio: {data.get('challenge', 'General')}
 Genera preparacion completa."""
     result = await kimi_chat([{"role": "system", "content": INTERVIEW_SYSTEM}, {"role": "user", "content": user_msg}], 0.5, 3000)
-    return {"result": strip_markdown(result), "meta": {"module": "interview_trainer"}}
+    if isinstance(result, tuple): return result
+    return jsonify({"result": strip_markdown(result), "meta": {"module": "interview_trainer"}})
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
